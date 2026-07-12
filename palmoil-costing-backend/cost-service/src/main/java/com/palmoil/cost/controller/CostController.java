@@ -43,4 +43,15 @@ public class CostController {
     public Object getCategoryBreakdown() {
         return costService.getCategoryBreakdown();
     }
+
+    @GetMapping("/costs/report/monthly")
+    public Object getMonthlyReport(@RequestParam(defaultValue = "0") int year) {
+        int y = year > 0 ? year : java.time.Year.now().getValue();
+        return costService.getMonthlyReport(y);
+    }
+
+    @GetMapping("/costs/report/yearly")
+    public Object getYearlyReport() {
+        return costService.getYearlyReport();
+    }
 }

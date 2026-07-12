@@ -36,6 +36,9 @@ export default function PalmOilCostingApp() {
   const [farmBreakdowns, setFarmBreakdowns] = useState({});   // keyed by batch_id
   const [summary, setSummary] = useState({ batch_count: 0, total_cost: 0, by_category: [] });
   const [auditEvents, setAuditEvents] = useState([]);
+  const [monthlyReport, setMonthlyReport] = useState([]);
+  const [yearlyReport, setYearlyReport] = useState([]);
+  const [reportYear, setReportYear] = useState(new Date().getFullYear());
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState({ type: "info", text: "" });
 
@@ -94,7 +97,8 @@ export default function PalmOilCostingApp() {
   const batchCostPerKeg = selectedBatch && Number(selectedBatch.cpo_kegs) > 0
     ? batchTotal / Number(selectedBatch.cpo_kegs) : 0;
 
-  useEffect(() => { void loadAll(); }, []);
+  useEffect(() => { void loadAll(); void loadYearlyReport(); }, []);
+  useEffect(() => { void loadMonthlyReport(reportYear); }, [reportYear]);
   useEffect(() => {
     if (selectedBatchId) {
       void loadBatchCosts(selectedBatchId);
@@ -161,6 +165,20 @@ export default function PalmOilCostingApp() {
     } catch (err) {
       setMessage({ type: "error", text: err.message });
     }
+  }
+
+  async function loadMonthlyReport(year) {
+    try {
+      const data = await api(`${COST_API}/costs/report/monthly?year=${year}`);
+      setMonthlyReport(Array.isArray(data) ? data : []);
+    } catch { /* silent */ }
+  }
+
+  async function loadYearlyReport() {
+    try {
+      const data = await api(`${COST_API}/costs/report/yearly`);
+      setYearlyReport(Array.isArray(data) ? data : []);
+    } catch { /* silent */ }
   }
 
   async function loadFarmBreakdown(batchId) {
@@ -325,6 +343,8 @@ export default function PalmOilCostingApp() {
             totalFFB={totalFFB} totalKegs={totalKegs}
             kegsPerFFB={kegsPerFFB} costPerKeg={costPerKeg} auditEvents={auditEvents}
             farmBreakdowns={farmBreakdowns}
+            monthlyReport={monthlyReport} yearlyReport={yearlyReport}
+            reportYear={reportYear} setReportYear={setReportYear}
           />
         )}
       </div>
@@ -997,9 +1017,68 @@ function CostScreen({ batches, selectedBatchId, setSelectedBatchId, selectedBatc
 
 // ─── Report ───────────────────────────────────────────────────────────────────
 
-function ReportScreen({ summary, batches, totalFFB, totalKegs, kegsPerFFB, costPerKeg, auditEvents, farmBreakdowns }) {
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function CategoryBreakdownRows({ rows, total }) {
   return (
-    <Shell badge="Analytics" title="Cost Report" subtitle="Production cost breakdown by category, yield efficiency, and per-keg profitability."
+    <div className="space-y-2">
+      {rows.map((row) => {
+        const m = CATEGORY_META[row.category] || { label: row.category, color: "text-slate-300" };
+        const pct = total > 0 ? ((row.total / total) * 100).toFixed(1) : 0;
+        return (
+          <div key={row.category} className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4">
+            <div className="flex items-center justify-between">
+              <span className={`text-sm font-semibold ${m.color}`}>{m.label}</span>
+              <div className="text-right">
+                <p className="text-sm font-medium text-white">{ngn.format(row.total)}</p>
+                <p className="text-xs text-slate-500">{pct}%</p>
+              </div>
+            </div>
+            <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/10">
+              <div className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-green-500" style={{ width: `${pct}%` }} />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ReportScreen({ summary, batches, totalFFB, totalKegs, kegsPerFFB, costPerKeg, auditEvents, farmBreakdowns, monthlyReport, yearlyReport, reportYear, setReportYear }) {
+  const [period, setPeriod] = useState("all");
+
+  // Group monthly rows by month number
+  const monthlyByMonth = useMemo(() => {
+    const map = {};
+    for (const row of monthlyReport) {
+      const m = Number(row.month);
+      if (!map[m]) map[m] = { total: 0, categories: [] };
+      map[m].total += Number(row.total);
+      map[m].categories.push({ category: row.category, total: Number(row.total) });
+    }
+    return map;
+  }, [monthlyReport]);
+
+  const monthlyMax = useMemo(() => Math.max(...Object.values(monthlyByMonth).map((m) => m.total), 1), [monthlyByMonth]);
+
+  // Group yearly rows by year
+  const yearlyByYear = useMemo(() => {
+    const map = {};
+    for (const row of yearlyReport) {
+      const y = Number(row.year);
+      if (!map[y]) map[y] = { total: 0, categories: [] };
+      map[y].total += Number(row.total);
+      map[y].categories.push({ category: row.category, total: Number(row.total) });
+    }
+    return map;
+  }, [yearlyReport]);
+
+  const years = Object.keys(yearlyByYear).map(Number).sort((a, b) => b - a);
+  const currentYear = new Date().getFullYear();
+  const yearOptions = Array.from({ length: 5 }, (_, i) => currentYear - i);
+
+  return (
+    <Shell badge="Analytics" title="Cost Report" subtitle="View production costs by category, month, or year."
       aside={
         <div className="space-y-4">
           <div className="rounded-[28px] border border-white/10 bg-white/5 p-6">
@@ -1012,61 +1091,124 @@ function ReportScreen({ summary, batches, totalFFB, totalKegs, kegsPerFFB, costP
         </div>
       }
     >
-      <div className="grid gap-4 sm:grid-cols-2">
-        <MetricCard title="FFB Units Processed" value={fmtN(totalFFB)} />
-        <MetricCard title="CPO Produced" value={`${Number(totalKegs).toFixed(1)} kegs`} tone="text-emerald-300" />
-        <MetricCard title="Yield Ratio" value={`${kegsPerFFB} kegs/FFB`} tone="text-emerald-300" />
-        <MetricCard title="Open Batches" value={String(batches.filter((b) => b.status === "OPEN").length)} />
+      {/* Period toggle */}
+      <div className="mb-6 flex gap-2">
+        {[["all", "All Time"], ["monthly", "Monthly"], ["yearly", "Yearly"]].map(([key, label]) => (
+          <button key={key} type="button" onClick={() => setPeriod(key)}
+            className={`rounded-2xl px-4 py-2 text-sm font-medium transition ${period === key ? "bg-gradient-to-r from-emerald-400 to-green-600 text-slate-950" : "border border-white/10 bg-white/5 text-slate-300 hover:bg-white/10"}`}>
+            {label}
+          </button>
+        ))}
       </div>
 
-      {/* Category breakdown */}
-      <div className="mt-5 space-y-3">
-        <h3 className="text-lg font-semibold">Cost Breakdown</h3>
-        {(summary.by_category || []).map((row) => {
-          const m = CATEGORY_META[row.category] || { label: row.category, color: "text-slate-300" };
-          const pct = summary.total_cost > 0 ? ((row.total / summary.total_cost) * 100).toFixed(1) : 0;
-          return (
-            <div key={row.category} className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4">
-              <div className="flex items-center justify-between">
-                <span className={`text-sm font-semibold ${m.color}`}>{m.label}</span>
-                <div className="text-right">
-                  <p className="text-sm font-medium text-white">{ngn.format(row.total)}</p>
-                  <p className="text-xs text-slate-500">{pct}% of total</p>
+      {/* ── All Time ── */}
+      {period === "all" && (
+        <>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <MetricCard title="FFB Units Processed" value={fmtN(totalFFB)} />
+            <MetricCard title="CPO Produced" value={`${Number(totalKegs).toFixed(1)} kegs`} tone="text-emerald-300" />
+            <MetricCard title="Yield Ratio" value={`${kegsPerFFB} kegs/FFB`} tone="text-emerald-300" />
+            <MetricCard title="Open Batches" value={String(batches.filter((b) => b.status === "OPEN").length)} />
+          </div>
+          <div className="mt-5 space-y-3">
+            <h3 className="text-lg font-semibold">Cost Breakdown</h3>
+            <CategoryBreakdownRows rows={summary.by_category || []} total={summary.total_cost} />
+            {!(summary.by_category || []).length && <p className="text-sm text-slate-500">No cost data yet.</p>}
+          </div>
+          {batches.length > 0 && (
+            <div className="mt-5 space-y-4">
+              <h3 className="text-lg font-semibold">Batch &amp; Farm Output Summary</h3>
+              {batches.map((b) => (
+                <div key={b.id} className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-medium text-white">{b.id}</p>
+                      <p className="text-xs text-slate-400">{fmtDate(b.batch_date)} · {b.mill_name}</p>
+                      {b.notes && <p className="text-xs text-slate-500 italic">{b.notes}</p>}
+                    </div>
+                    <div className="text-right">
+                      <p className="text-lg font-semibold text-emerald-300">{Number(b.cpo_kegs).toFixed(1)} kegs CPO</p>
+                      <p className="text-xs text-slate-400">{fmtN(b.ffb_count)} FFB units</p>
+                    </div>
+                  </div>
+                  <FarmBreakdownTable breakdown={farmBreakdowns[b.id]} batchId={b.id} />
                 </div>
-              </div>
-              <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/10">
-                <div className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-green-500" style={{ width: `${pct}%` }} />
-              </div>
+              ))}
             </div>
-          );
-        })}
-        {!(summary.by_category || []).length && <p className="text-sm text-slate-500">No cost data yet.</p>}
-      </div>
-
-      {/* Batch-level table with farm breakdown */}
-      {batches.length > 0 && (
-        <div className="mt-5 space-y-4">
-          <h3 className="text-lg font-semibold">Batch &amp; Farm Output Summary</h3>
-          {batches.map((b) => (
-            <div key={b.id} className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium text-white">{b.id}</p>
-                  <p className="text-xs text-slate-400">{fmtDate(b.batch_date)} · {b.mill_name}</p>
-                  {b.notes && <p className="text-xs text-slate-500 italic">{b.notes}</p>}
-                </div>
-                <div className="text-right">
-                  <p className="text-lg font-semibold text-emerald-300">{Number(b.cpo_kegs).toFixed(1)} kegs CPO</p>
-                  <p className="text-xs text-slate-400">{fmtN(b.ffb_count)} FFB units</p>
-                </div>
-              </div>
-              <FarmBreakdownTable breakdown={farmBreakdowns[b.id]} batchId={b.id} />
-            </div>
-          ))}
-        </div>
+          )}
+        </>
       )}
 
-      <div className="mt-5 grid gap-4 sm:grid-cols-2">
+      {/* ── Monthly ── */}
+      {period === "monthly" && (
+        <>
+          <div className="mb-5 flex items-center gap-3">
+            <label className="text-sm text-slate-400">Year</label>
+            <select value={reportYear} onChange={(e) => setReportYear(Number(e.target.value))}
+              className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white outline-none">
+              {yearOptions.map((y) => <option key={y} value={y}>{y}</option>)}
+            </select>
+          </div>
+
+          {Object.keys(monthlyByMonth).length === 0 && (
+            <p className="text-sm text-slate-500">No cost entries with dates in {reportYear}.</p>
+          )}
+
+          <div className="space-y-4">
+            {MONTH_NAMES.map((name, idx) => {
+              const m = idx + 1;
+              const data = monthlyByMonth[m];
+              if (!data) return null;
+              const barPct = (data.total / monthlyMax) * 100;
+              return (
+                <div key={m} className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-white">{name} {reportYear}</span>
+                    <span className="text-lg font-semibold text-emerald-300">{ngn.format(data.total)}</span>
+                  </div>
+                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10">
+                    <div className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-green-500 transition-all" style={{ width: `${barPct}%` }} />
+                  </div>
+                  <div className="mt-3 space-y-1.5">
+                    {data.categories.map((c) => {
+                      const meta = CATEGORY_META[c.category] || { label: c.category, color: "text-slate-300" };
+                      return (
+                        <div key={c.category} className="flex items-center justify-between text-xs">
+                          <span className={meta.color}>{meta.label}</span>
+                          <span className="text-slate-300">{ngn.format(c.total)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {/* ── Yearly ── */}
+      {period === "yearly" && (
+        <>
+          {years.length === 0 && <p className="text-sm text-slate-500">No cost data yet.</p>}
+          <div className="space-y-5">
+            {years.map((y) => {
+              const data = yearlyByYear[y];
+              return (
+                <div key={y} className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4">
+                  <div className="mb-3 flex items-center justify-between">
+                    <span className="text-xl font-semibold text-white">{y}</span>
+                    <span className="text-xl font-semibold text-emerald-300">{ngn.format(data.total)}</span>
+                  </div>
+                  <CategoryBreakdownRows rows={data.categories} total={data.total} />
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      <div className="mt-6 grid gap-4 sm:grid-cols-2">
         <button className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-left font-medium text-white hover:bg-white/10">Export CSV Report</button>
         <button className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-left font-medium text-white hover:bg-white/10">Download PDF Statement</button>
       </div>

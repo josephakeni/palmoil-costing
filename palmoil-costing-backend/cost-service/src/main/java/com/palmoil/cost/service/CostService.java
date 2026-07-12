@@ -70,6 +70,14 @@ public class CostService {
         return costEntryRepository.sumByCategory();
     }
 
+    public List<Map<String, Object>> getMonthlyReport(int year) {
+        return costEntryRepository.monthlySummary(year);
+    }
+
+    public List<Map<String, Object>> getYearlyReport() {
+        return costEntryRepository.yearlySummary();
+    }
+
     private void publishEvent(String batchId, String category, Double amount, String description) {
         Map<String, Object> event = new HashMap<>();
         event.put("batchId", batchId);
