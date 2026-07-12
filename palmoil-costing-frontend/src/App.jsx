@@ -61,6 +61,8 @@ export default function PalmOilCostingApp() {
     ffb_units: "",
     price_per_unit: "",
     purchase_date: new Date().toISOString().slice(0, 10),
+    // General cost fields
+    cost_date: new Date().toISOString().slice(0, 10),
     // Maintenance allocation
     total_cost: "",
     allocated: "",
@@ -222,7 +224,14 @@ export default function PalmOilCostingApp() {
       description = `Total: ${ngn.format(Number(costForm.total_cost))} | Allocated: ${ngn.format(Number(costForm.allocated))}${description ? " — " + description : ""}`;
     }
 
-    const payload = { batch_id: batchId, category: costForm.category, amount, description };
+    const payload = {
+      batch_id: batchId,
+      category: costForm.category,
+      amount,
+      description,
+      farm_name: costForm.farm_name || null,
+      cost_date: costForm.category === "FFB_PROCUREMENT" ? costForm.purchase_date : costForm.cost_date,
+    };
 
     try {
       await api(`${COST_API}/costs`, { method: "POST", body: JSON.stringify(payload) });
@@ -241,7 +250,7 @@ export default function PalmOilCostingApp() {
         await loadFarmBreakdown(batchId);
       }
 
-      setCostForm((p) => ({ ...p, amount: "", description: "", farm_name: "", ffb_units: "", price_per_unit: "", purchase_date: new Date().toISOString().slice(0, 10), total_cost: "", allocated: "" }));
+      setCostForm((p) => ({ ...p, amount: "", description: "", farm_name: "", ffb_units: "", price_per_unit: "", purchase_date: new Date().toISOString().slice(0, 10), cost_date: new Date().toISOString().slice(0, 10), total_cost: "", allocated: "" }));
       await loadBatchCosts(batchId);
       await loadAll();
       setMessage({ type: "success", text: `${CATEGORY_META[costForm.category]?.label} cost logged — ${ngn.format(amount)}` });
@@ -307,6 +316,7 @@ export default function PalmOilCostingApp() {
             setSelectedBatchId={(id) => { setSelectedBatchId(id); setCostForm((p) => ({ ...p, batch_id: id })); }}
             selectedBatch={selectedBatch} batchCosts={batchCosts} batchTotal={batchTotal}
             batchCostPerKeg={batchCostPerKeg} costForm={costForm} setCostForm={setCostForm}
+            farmBreakdowns={farmBreakdowns}
             onSubmit={handleLogCost}
           />
         )}
@@ -781,9 +791,10 @@ function NewBatchScreen({ batchForm, setBatchForm, onSubmit, onBack }) {
 
 // ─── Cost entry ───────────────────────────────────────────────────────────────
 
-function CostScreen({ batches, selectedBatchId, setSelectedBatchId, selectedBatch, batchCosts, batchTotal, batchCostPerKeg, costForm, setCostForm, onSubmit }) {
+function CostScreen({ batches, selectedBatchId, setSelectedBatchId, selectedBatch, batchCosts, batchTotal, batchCostPerKeg, costForm, setCostForm, farmBreakdowns, onSubmit }) {
   const isFfb   = costForm.category === "FFB_PROCUREMENT";
   const isMaint = costForm.category === "MAINTENANCE";
+  const batchFarms = farmBreakdowns?.[selectedBatchId]?.farms ?? [];
 
   return (
     <Shell badge="Cost Entry" title="Log Production Costs" subtitle="Record expenses against a batch by category. FFB procurement auto-calculates from units × price."
@@ -822,6 +833,10 @@ function CostScreen({ batches, selectedBatchId, setSelectedBatchId, selectedBatc
                   <CategoryTag category={e.category} />
                   <span className="text-sm font-medium text-slate-200">{ngn.format(e.amount)}</span>
                 </div>
+                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
+                  {e.farmName && <span className="text-xs text-emerald-400">{e.farmName}</span>}
+                  {e.costDate && <span className="text-xs text-slate-500">{fmtDate(e.costDate)}</span>}
+                </div>
                 {e.description && <p className="mt-1 text-xs text-slate-500 truncate">{e.description}</p>}
               </div>
             ))}
@@ -851,7 +866,7 @@ function CostScreen({ batches, selectedBatchId, setSelectedBatchId, selectedBatc
               const m = CATEGORY_META[cat];
               return (
                 <button key={cat} type="button"
-                  onClick={() => setCostForm((p) => ({ ...p, category: cat, amount: "", farm_name: "", ffb_units: "", price_per_unit: "", purchase_date: new Date().toISOString().slice(0, 10), total_cost: "", allocated: "" }))}
+                  onClick={() => setCostForm((p) => ({ ...p, category: cat, amount: "", farm_name: "", ffb_units: "", price_per_unit: "", purchase_date: new Date().toISOString().slice(0, 10), cost_date: new Date().toISOString().slice(0, 10), total_cost: "", allocated: "" }))}
                   className={`rounded-2xl border px-3 py-3 text-left text-xs font-medium transition ${costForm.category === cat ? m.bg + " " + m.color : "border-white/10 bg-white/5 text-slate-400 hover:bg-white/10"}`}
                 >
                   {m.label}
@@ -917,6 +932,37 @@ function CostScreen({ batches, selectedBatchId, setSelectedBatchId, selectedBatc
                 />
               </Field>
             </div>
+          </div>
+        )}
+
+        {/* Date + Farm — shown for all non-FFB categories (FFB has its own sub-form fields) */}
+        {!isFfb && (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Cost Date *">
+              <input type="date" value={costForm.cost_date}
+                onChange={(e) => setCostForm((p) => ({ ...p, cost_date: e.target.value }))}
+                className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none"
+              />
+            </Field>
+            <Field label="Farm / Source">
+              {batchFarms.length > 0 ? (
+                <select value={costForm.farm_name}
+                  onChange={(e) => setCostForm((p) => ({ ...p, farm_name: e.target.value }))}
+                  className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3.5 text-white outline-none"
+                >
+                  <option value="">All farms / unspecified</option>
+                  {batchFarms.map((f) => (
+                    <option key={f.farm_name} value={f.farm_name}>{f.farm_name}</option>
+                  ))}
+                </select>
+              ) : (
+                <input value={costForm.farm_name}
+                  onChange={(e) => setCostForm((p) => ({ ...p, farm_name: e.target.value }))}
+                  className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none placeholder:text-slate-500"
+                  placeholder="e.g. farm1 (optional)"
+                />
+              )}
+            </Field>
           </div>
         )}
 

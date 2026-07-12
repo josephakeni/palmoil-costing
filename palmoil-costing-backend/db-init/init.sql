@@ -17,6 +17,8 @@ CREATE TABLE IF NOT EXISTS cost_entries (
     category    VARCHAR(40)    NOT NULL,
     amount      NUMERIC(14,2)  NOT NULL,
     description TEXT,
+    farm_name   VARCHAR(100),
+    cost_date   DATE,
     created_at  TIMESTAMP      DEFAULT CURRENT_TIMESTAMP
 );
 

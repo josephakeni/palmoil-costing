@@ -23,7 +23,9 @@ public class CostController {
                 request.getBatchId(),
                 request.getCategory(),
                 request.getAmount(),
-                request.getDescription()
+                request.getDescription(),
+                request.getFarmName(),
+                request.getCostDate()
         );
     }
 

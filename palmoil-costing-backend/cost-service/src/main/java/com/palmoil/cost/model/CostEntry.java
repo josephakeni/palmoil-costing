@@ -1,6 +1,7 @@
 package com.palmoil.cost.model;
 
 import jakarta.persistence.*;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Entity
@@ -22,6 +23,12 @@ public class CostEntry {
     @Column(name = "description")
     private String description;
 
+    @Column(name = "farm_name")
+    private String farmName;
+
+    @Column(name = "cost_date")
+    private LocalDate costDate;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt = LocalDateTime.now();
 
@@ -30,11 +37,15 @@ public class CostEntry {
     public String getCategory() { return category; }
     public Double getAmount() { return amount; }
     public String getDescription() { return description; }
+    public String getFarmName() { return farmName; }
+    public LocalDate getCostDate() { return costDate; }
     public LocalDateTime getCreatedAt() { return createdAt; }
 
     public void setBatchId(String batchId) { this.batchId = batchId; }
     public void setCategory(String category) { this.category = category; }
     public void setAmount(Double amount) { this.amount = amount; }
     public void setDescription(String description) { this.description = description; }
+    public void setFarmName(String farmName) { this.farmName = farmName; }
+    public void setCostDate(LocalDate costDate) { this.costDate = costDate; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
 }

@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import redis.clients.jedis.Jedis;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -24,7 +25,7 @@ public class CostService {
     private final String redisHost = System.getenv().getOrDefault("REDIS_HOST", "redis");
     private final int redisPort = Integer.parseInt(System.getenv().getOrDefault("REDIS_PORT", "6379"));
 
-    public Map<String, Object> logCost(String batchId, String category, Double amount, String description) {
+    public Map<String, Object> logCost(String batchId, String category, Double amount, String description, String farmName, LocalDate costDate) {
         if (amount == null || amount <= 0) {
             throw new RuntimeException("Amount must be greater than zero");
         }
@@ -37,6 +38,8 @@ public class CostService {
         entry.setCategory(category.toUpperCase());
         entry.setAmount(amount);
         entry.setDescription(description);
+        entry.setFarmName(farmName);
+        entry.setCostDate(costDate);
         costEntryRepository.save(entry);
 
         publishEvent(batchId, category.toUpperCase(), amount, description);
