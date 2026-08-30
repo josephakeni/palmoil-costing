@@ -103,10 +103,16 @@ def cost_summary():
     with engine.begin() as conn:
         by_category = conn.execute(
             text("""
-                SELECT category, SUM(amount) AS total
+                SELECT category,
+                       SUM(CASE WHEN event_type = 'COST_LOGGED' THEN amount
+                                WHEN event_type = 'COST_DELETED' THEN -amount
+                                ELSE 0 END) AS total
                 FROM audit_events
-                WHERE event_type = 'COST_LOGGED'
+                WHERE event_type IN ('COST_LOGGED', 'COST_DELETED')
                 GROUP BY category
+                HAVING SUM(CASE WHEN event_type = 'COST_LOGGED' THEN amount
+                                WHEN event_type = 'COST_DELETED' THEN -amount
+                                ELSE 0 END) > 0
                 ORDER BY total DESC
             """)
         ).mappings().all()
@@ -114,9 +120,11 @@ def cost_summary():
         totals = conn.execute(
             text("""
                 SELECT COUNT(DISTINCT batch_id) AS batch_count,
-                       SUM(amount) AS total_cost
+                       SUM(CASE WHEN event_type = 'COST_LOGGED' THEN amount
+                                WHEN event_type = 'COST_DELETED' THEN -amount
+                                ELSE 0 END) AS total_cost
                 FROM audit_events
-                WHERE event_type = 'COST_LOGGED'
+                WHERE event_type IN ('COST_LOGGED', 'COST_DELETED')
             """)
         ).mappings().fetchone()
 
