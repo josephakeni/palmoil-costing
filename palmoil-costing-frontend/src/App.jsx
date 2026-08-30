@@ -226,6 +226,19 @@ export default function PalmOilCostingApp() {
     }
   }
 
+  async function handleEditBatch(batchId, fields) {
+    try {
+      await api(`${PRODUCTION_API}/batches/${batchId}`, {
+        method: "PATCH",
+        body: JSON.stringify(fields),
+      });
+      await loadAll();
+      setMessage({ type: "success", text: `Batch ${batchId} updated.` });
+    } catch (err) {
+      setMessage({ type: "error", text: err.message });
+    }
+  }
+
   async function handleDeleteCost(id) {
     try {
       await api(`${COST_API}/costs/${id}`, { method: "DELETE" });
@@ -333,6 +346,7 @@ export default function PalmOilCostingApp() {
             onLoadFarmBreakdown={loadFarmBreakdown}
             onSelect={(id) => { setSelectedBatchId(id); setCostForm((p) => ({ ...p, batch_id: id })); setScreen("costs"); }}
             onNew={() => setScreen("new-batch")}
+            onEditBatch={handleEditBatch}
           />
         )}
         {screen === "new-batch" && (
@@ -682,8 +696,49 @@ function DashboardScreen({ batches, totalFFB, totalKegs, actualTotalKegs, kegsPe
 
 // ─── Batch list ───────────────────────────────────────────────────────────────
 
-function BatchListScreen({ batches, selectedBatchId, farmBreakdowns, onLoadFarmBreakdown, onSelect, onNew }) {
+function BatchListScreen({ batches, selectedBatchId, farmBreakdowns, onLoadFarmBreakdown, onSelect, onNew, onEditBatch }) {
   const [expandedId, setExpandedId] = useState(null);
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState({});
+  const [saving, setSaving] = useState(false);
+
+  function openEdit(batch) {
+    setEditingId(batch.id);
+    setEditForm({
+      mill_name: batch.mill_name || "",
+      operator: batch.operator || "",
+      batch_date: batch.batch_date ? String(batch.batch_date).slice(0, 10) : "",
+      ffb_count: String(batch.ffb_count ?? ""),
+      cpo_kegs: String(batch.cpo_kegs ?? ""),
+      pko_kegs: String(batch.pko_kegs ?? ""),
+      notes: batch.notes || "",
+      status: batch.status || "OPEN",
+    });
+  }
+
+  function closeEdit() {
+    setEditingId(null);
+    setEditForm({});
+  }
+
+  async function handleSave(batchId) {
+    setSaving(true);
+    try {
+      const payload = {};
+      if (editForm.mill_name.trim())      payload.mill_name  = editForm.mill_name.trim();
+      if (editForm.operator.trim())       payload.operator   = editForm.operator.trim();
+      if (editForm.batch_date)            payload.batch_date = editForm.batch_date;
+      if (editForm.ffb_count !== "")      payload.ffb_count  = Number(editForm.ffb_count);
+      if (editForm.cpo_kegs !== "")       payload.cpo_kegs   = Number(editForm.cpo_kegs);
+      if (editForm.pko_kegs !== "")       payload.pko_kegs   = Number(editForm.pko_kegs);
+      if (editForm.status)                payload.status     = editForm.status;
+      payload.notes = editForm.notes || null;
+      await onEditBatch(batchId, payload);
+      closeEdit();
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
     <Shell badge="Production Batches" title="All Batches" subtitle="Select a batch to log costs, or expand to see per-farm output breakdown."
@@ -713,9 +768,11 @@ function BatchListScreen({ batches, selectedBatchId, farmBreakdowns, onLoadFarmB
         {batches.length === 0 && <p className="text-sm text-slate-500">No batches yet. Create your first batch.</p>}
         {batches.map((batch) => {
           const isExpanded = expandedId === batch.id;
-          const breakdown = farmBreakdowns[batch.id];
+          const isEditing  = editingId === batch.id;
+          const breakdown  = farmBreakdowns[batch.id];
           return (
             <div key={batch.id} className={`rounded-2xl border ${batch.id === selectedBatchId ? "border-emerald-400/40" : "border-white/10"} bg-white/5`}>
+              {/* ── View row ── */}
               <div className="flex items-start justify-between gap-4 px-5 py-4">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-3 flex-wrap">
@@ -726,10 +783,14 @@ function BatchListScreen({ batches, selectedBatchId, farmBreakdowns, onLoadFarmB
                   </div>
                   <p className="mt-1 text-sm text-slate-400">{batch.mill_name} · {batch.operator}</p>
                   {batch.notes ? <p className="mt-1 text-xs text-slate-500 italic">{batch.notes}</p> : null}
-                  <div className="mt-3 flex gap-2">
+                  <div className="mt-3 flex flex-wrap gap-2">
                     <button type="button" onClick={() => onSelect(batch.id)}
                       className="rounded-xl bg-gradient-to-r from-emerald-400 to-green-600 px-3 py-1.5 text-xs font-medium text-slate-950">
                       Log Costs
+                    </button>
+                    <button type="button" onClick={() => isEditing ? closeEdit() : openEdit(batch)}
+                      className="rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-300 hover:bg-white/10">
+                      {isEditing ? "Cancel" : "Edit"}
                     </button>
                     {breakdown?.farms?.length > 0 && (
                       <button type="button" onClick={() => setExpandedId(isExpanded ? null : batch.id)}
@@ -748,7 +809,93 @@ function BatchListScreen({ batches, selectedBatchId, farmBreakdowns, onLoadFarmB
                   </span>
                 </div>
               </div>
-              {isExpanded && breakdown && (
+
+              {/* ── Inline edit form ── */}
+              {isEditing && (
+                <div className="border-t border-white/10 px-5 pb-5 pt-4">
+                  <p className="mb-4 text-xs font-semibold uppercase tracking-wider text-emerald-300">Edit Batch — {batch.id}</p>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div>
+                      <label className="mb-1.5 block text-xs text-slate-400">Mill / Location</label>
+                      <input value={editForm.mill_name}
+                        onChange={(e) => setEditForm((p) => ({ ...p, mill_name: e.target.value }))}
+                        className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/50 placeholder:text-slate-500"
+                        placeholder="Mill name"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1.5 block text-xs text-slate-400">Operator</label>
+                      <input value={editForm.operator}
+                        onChange={(e) => setEditForm((p) => ({ ...p, operator: e.target.value }))}
+                        className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/50 placeholder:text-slate-500"
+                        placeholder="Operator name"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1.5 block text-xs text-slate-400">Batch Date</label>
+                      <input type="date" value={editForm.batch_date}
+                        onChange={(e) => setEditForm((p) => ({ ...p, batch_date: e.target.value }))}
+                        className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/50"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1.5 block text-xs text-slate-400">Status</label>
+                      <select value={editForm.status}
+                        onChange={(e) => setEditForm((p) => ({ ...p, status: e.target.value }))}
+                        className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none"
+                      >
+                        <option value="OPEN">OPEN</option>
+                        <option value="CLOSED">CLOSED</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="mb-1.5 block text-xs text-slate-400">FFB Count (units)</label>
+                      <input type="number" value={editForm.ffb_count}
+                        onChange={(e) => setEditForm((p) => ({ ...p, ffb_count: e.target.value }))}
+                        className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/50"
+                        placeholder="0"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1.5 block text-xs text-slate-400">CPO Output (kegs)</label>
+                      <input type="number" value={editForm.cpo_kegs}
+                        onChange={(e) => setEditForm((p) => ({ ...p, cpo_kegs: e.target.value }))}
+                        className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/50"
+                        placeholder="0"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1.5 block text-xs text-slate-400">PKO Output (kegs)</label>
+                      <input type="number" value={editForm.pko_kegs}
+                        onChange={(e) => setEditForm((p) => ({ ...p, pko_kegs: e.target.value }))}
+                        className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/50"
+                        placeholder="0"
+                      />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="mb-1.5 block text-xs text-slate-400">Notes</label>
+                      <textarea value={editForm.notes}
+                        onChange={(e) => setEditForm((p) => ({ ...p, notes: e.target.value }))}
+                        className="h-16 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/50 placeholder:text-slate-500"
+                        placeholder="Any additional notes"
+                      />
+                    </div>
+                  </div>
+                  <div className="mt-4 flex gap-3">
+                    <button type="button" onClick={closeEdit}
+                      className="flex-1 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-slate-300 hover:bg-white/10">
+                      Cancel
+                    </button>
+                    <button type="button" disabled={saving} onClick={() => handleSave(batch.id)}
+                      className="flex-1 rounded-xl bg-gradient-to-r from-emerald-400 to-green-600 px-4 py-2.5 text-sm font-medium text-slate-950 shadow-lg shadow-emerald-500/25 disabled:opacity-50">
+                      {saving ? "Saving…" : "Save Changes"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* ── Farm breakdown ── */}
+              {isExpanded && !isEditing && breakdown && (
                 <div className="border-t border-white/10 px-5 pb-4">
                   <FarmBreakdownTable
                     breakdown={breakdown}

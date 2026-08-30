@@ -39,6 +39,9 @@ class BatchCreate(BaseModel):
 
 
 class BatchUpdate(BaseModel):
+    mill_name: Optional[str] = None
+    operator: Optional[str] = None
+    batch_date: Optional[date] = None
     ffb_count: Optional[int] = None
     cpo_kegs: Optional[float] = None
     pko_kegs: Optional[float] = None
