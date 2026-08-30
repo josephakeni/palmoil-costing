@@ -54,4 +54,9 @@ public class CostController {
     public Object getYearlyReport() {
         return costService.getYearlyReport();
     }
+
+    @DeleteMapping("/costs/{id}")
+    public Object deleteCost(@PathVariable Long id) {
+        return costService.deleteCost(id);
+    }
 }

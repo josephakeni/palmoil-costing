@@ -226,6 +226,18 @@ export default function PalmOilCostingApp() {
     }
   }
 
+  async function handleDeleteCost(id) {
+    try {
+      await api(`${COST_API}/costs/${id}`, { method: "DELETE" });
+      const batchId = costForm.batch_id || selectedBatchId;
+      await loadBatchCosts(batchId);
+      await loadAll();
+      setMessage({ type: "success", text: "Cost entry deleted." });
+    } catch (err) {
+      setMessage({ type: "error", text: err.message });
+    }
+  }
+
   async function handleLogCost(event) {
     event.preventDefault();
     const batchId = costForm.batch_id || selectedBatchId;
@@ -336,6 +348,7 @@ export default function PalmOilCostingApp() {
             batchCostPerKeg={batchCostPerKeg} costForm={costForm} setCostForm={setCostForm}
             farmBreakdowns={farmBreakdowns}
             onSubmit={handleLogCost}
+            onDeleteCost={handleDeleteCost}
           />
         )}
         {screen === "report" && (
@@ -811,7 +824,7 @@ function NewBatchScreen({ batchForm, setBatchForm, onSubmit, onBack }) {
 
 // ─── Cost entry ───────────────────────────────────────────────────────────────
 
-function CostScreen({ batches, selectedBatchId, setSelectedBatchId, selectedBatch, batchCosts, batchTotal, batchCostPerKeg, costForm, setCostForm, farmBreakdowns, onSubmit }) {
+function CostScreen({ batches, selectedBatchId, setSelectedBatchId, selectedBatch, batchCosts, batchTotal, batchCostPerKeg, costForm, setCostForm, farmBreakdowns, onSubmit, onDeleteCost }) {
   const isFfb   = costForm.category === "FFB_PROCUREMENT";
   const isMaint = costForm.category === "MAINTENANCE";
   const batchFarms = farmBreakdowns?.[selectedBatchId]?.farms ?? [];
@@ -849,9 +862,19 @@ function CostScreen({ batches, selectedBatchId, setSelectedBatchId, selectedBatc
           <div className="space-y-2">
             {batchCosts.slice(0, 6).map((e) => (
               <div key={e.id} className="rounded-xl border border-white/10 bg-white/5 px-4 py-3">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
                   <CategoryTag category={e.category} />
-                  <span className="text-sm font-medium text-slate-200">{ngn.format(e.amount)}</span>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <span className="text-sm font-medium text-slate-200">{ngn.format(e.amount)}</span>
+                    <button
+                      type="button"
+                      onClick={() => onDeleteCost(e.id)}
+                      className="text-xs text-slate-600 hover:text-rose-400 transition"
+                      title="Delete entry"
+                    >
+                      ✕
+                    </button>
+                  </div>
                 </div>
                 <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
                   {e.farmName && <span className="text-xs text-emerald-400">{e.farmName}</span>}

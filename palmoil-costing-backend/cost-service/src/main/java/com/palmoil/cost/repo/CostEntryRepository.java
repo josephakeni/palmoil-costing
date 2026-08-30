@@ -5,11 +5,14 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 
 public interface CostEntryRepository extends JpaRepository<CostEntry, Long> {
     List<CostEntry> findByBatchIdOrderByCreatedAtDesc(String batchId);
+
+    boolean existsByBatchIdAndCategoryAndAmountAndCostDate(String batchId, String category, Double amount, LocalDate costDate);
 
     @Query("SELECT SUM(e.amount) FROM CostEntry e WHERE e.batchId = :batchId")
     Double sumByBatchId(String batchId);
